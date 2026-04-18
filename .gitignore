@@ -18,3 +18,7 @@ venv/
 
 # Logs
 *.log
+data/*.log
+
+# Project specific
+.history/

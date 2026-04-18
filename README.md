@@ -1,46 +1,45 @@
-# Windows Toggl Nudge Processor
+# Windows Background Toggl Processor (Toggl Nudge)
 
-A lightweight Python-based background processor designed for Windows to provide configurable nudges and reminders based on your Toggl track activity. This utility helps users stay focused and track their time effectively by prompting them at set intervals if no Toggl entry is active or if an entry exceeds a certain duration.
+A lightweight background utility for Windows that nudges you to track your time in Toggl if you're active but not currently recording an entry.
 
-## Project Files:
+## **Overview**
+This project follows the [Graze Skeleton Project](https://github.com/graze-ai/project-template) structure. It uses the Toggl API to monitor current time entries and displays a Windows notification (nudge) if time tracking is forgotten or needs attention.
 
-*   `run_nudge.bat`: This batch file is the entry point for running the `toggl_nudge.pyw` script in the background on Windows. It's designed to be executed without opening a console window.
-*   `toggl_nudge.pyw`: The main Python script that implements the Toggl nudge logic. It checks your current Toggl status and displays reminders based on predefined rules. The `.pyw` extension ensures that it runs without a visible Python console.
-*   `toggl_nudge_test.pyw`: A test version of the nudge script, possibly configured for more frequent or specific test cases (e.g., showing every 10 seconds as mentioned by the user).
-*   `get_toggl_projects.py`: A utility script to fetch and display Toggl projects. This might be used for configuration or debugging purposes.
-*   `toggl_nudge.log`: A log file where `toggl_nudge.pyw` writes output, errors, or debugging information. Useful for troubleshooting and monitoring the script's execution.
-*   `.env`: This file (ignored by Git) is used to store environment variables, such as your Toggl API key and workspace ID, ensuring that sensitive information is not hardcoded in the scripts.
+## **Directory Structure**
+```text
+├── configs/              # configuration files for the nudge logic
+├── data/                 # local data and logs (toggl_nudge.log)
+├── docs/                 # documentation for the project
+├── notebooks/            # experimentation and R&D notebooks
+├── scripts/              # utility scripts like get_toggl_projects.py
+├── src/                  # main source code (toggl_nudge.pyw)
+├── tests/                # test scripts (toggl_nudge_test.py)
+├── Makefile              # automation for setup and running
+├── run_nudge.bat         # entry point for Windows background execution
+└── requirements.txt      # Python dependencies
+```
 
-## Setup:
-
-1.  **Clone this repository** (after it's pushed to GitHub).
-2.  **Install Python:** Ensure you have Python 3.x installed.
-3.  **Create a Virtual Environment:**
+## **Installation**
+1.  Ensure you have Python installed.
+2.  Create a virtual environment:
     ```bash
     python -m venv venv
-    .\venv\Scripts\activate
     ```
-4.  **Install Dependencies:**
+3.  Install dependencies:
     ```bash
-    pip install -r requirements.txt # (A requirements.txt will be generated later)
+    make install
     ```
-5.  **Configure `.env`:** Create a `.env` file in the root directory (if it doesn't exist) and add your Toggl API token and workspace ID:
-    ```
-    TOGGL_API_TOKEN=your_toggl_api_token_here
-    TOGGL_WORKSPACE_ID=your_toggl_workspace_id_here
-    ```
-    *   You can find your Toggl API token in your Toggl Profile Settings.
-    *   You can get your Toggl Workspace ID by checking the URL when you're logged into Toggl Track (e.g., `https://track.toggl.com/workspace/<WORKSPACE_ID>/dashboard`).
+4.  Configure your credentials in a `.env` file based on `.env.example`.
 
-## Usage:
+## **Usage**
+-   **Run in background:** Execute `run_nudge.bat`. This will start the processor without a terminal window.
+-   **Run for testing:** Run `make test` or execute `tests/toggl_nudge_test.py` directly.
+-   **Fetch Projects:** Run `python scripts/get_toggl_projects.py` to list your Toggl projects.
 
-To run the main nudge processor, you would typically execute `run_nudge.bat`. Refer to the `run_nudge.bat` file for specific execution details.
+## **Key Components**
+-   `src/toggl_nudge.pyw`: The core engine that runs in the background.
+-   `run_nudge.bat`: A simple batch script to launch the background process.
+-   `toggl_nudge.log`: Log file used for monitoring script behavior and errors.
 
-## Development:
-
-*   **Testing:** Use `toggl_nudge_test.pyw` for quick testing of nudge logic.
-*   **Logging:** Monitor `toggl_nudge.log` for any issues or to understand script behavior.
-
----
-
-**Note:** This project utilizes the `python-dotenv` library for loading environment variables and `toggl-python` for interacting with the Toggl API.
+## **License**
+This project is licensed under the MIT License. See the `LICENSE` file for details.
