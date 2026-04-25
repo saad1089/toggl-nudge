@@ -18,6 +18,7 @@ if sys.platform == 'win32':
         pass
 
 # Windows Hotkey Constants
+MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
 VK_T = 0x54 # 'T' key
@@ -69,13 +70,19 @@ class TogglNudgeApp:
         self.root.mainloop()
 
     def register_hotkey(self):
-        if not ctypes.windll.user32.RegisterHotKey(None, 1, MOD_CONTROL | MOD_SHIFT, VK_T):
-            logging.error("Could not register hotkey Ctrl+Shift+T")
+        # Using a more unique ID and explicit error logging
+        self.hotkey_id = 99
+        if not ctypes.windll.user32.RegisterHotKey(None, self.hotkey_id, MOD_ALT | MOD_SHIFT, VK_T):
+            logging.error("CRITICAL: Could not register hotkey Alt+Shift+T. Is another app using it?")
+        else:
+            logging.info("Hotkey Alt+Shift+T registered successfully.")
 
     def check_hotkey(self):
         msg = wintypes.MSG()
-        if ctypes.windll.user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-            if msg.message == WM_HOTKEY:
+        # PeekMessage with PM_REMOVE (1) to process the message
+        while ctypes.windll.user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+            if msg.message == WM_HOTKEY and msg.wParam == self.hotkey_id:
+                logging.info("Hotkey Alt+Shift+T detected.")
                 self.show_nudge(forced=True)
             ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
             ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
