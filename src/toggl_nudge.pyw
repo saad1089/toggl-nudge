@@ -3,6 +3,7 @@ import sys
 import logging
 import tkinter as tk
 import ctypes
+import threading
 from ctypes import wintypes
 from tkinter import messagebox, simpledialog
 from datetime import datetime, timezone, timedelta
@@ -61,32 +62,38 @@ class TogglNudgeApp:
         self.root.withdraw()
         self.setup_ui()
         
-        # Register Global Hotkey (Ctrl+Shift+T)
-        self.register_hotkey()
-        self.root.after(100, self.check_hotkey)
+        # Start Global Hotkey Thread (Ctrl+Alt+T)
+        self.start_hotkey_thread()
         
         # Lazy Loading: Only connect to Toggl when we actually need it
         self.root.after(100, self.show_nudge)
         self.root.mainloop()
 
-    def register_hotkey(self):
-        # Using a more unique ID and explicit error logging
-        self.hotkey_id = 99
-        if not ctypes.windll.user32.RegisterHotKey(None, self.hotkey_id, MOD_ALT | MOD_SHIFT, VK_T):
-            logging.error("CRITICAL: Could not register hotkey Alt+Shift+T. Is another app using it?")
-        else:
-            logging.info("Hotkey Alt+Shift+T registered successfully.")
+    def start_hotkey_thread(self):
+        def hotkey_loop():
+            # Ctrl + Alt + Shift + T
+            MOD_ALL = MOD_CONTROL | MOD_ALT | MOD_SHIFT
+            VK_T = 0x54
+            HOTKEY_ID = 101
+            
+            # Clear any previous registration for this ID
+            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
+            
+            if not ctypes.windll.user32.RegisterHotKey(None, HOTKEY_ID, MOD_ALL, VK_T):
+                logging.error("Failed to register Ctrl+Alt+Shift+T")
+                return
+            
+            logging.info("Hotkey Ctrl+Alt+Shift+T registered.")
+            msg = wintypes.MSG()
+            while ctypes.windll.user32.GetMessageW(ctypes.byref(msg), None, 0, 0):
+                if msg.message == WM_HOTKEY:
+                    logging.info("Hotkey detected!")
+                    self.root.after(0, self.show_nudge, True)
+                ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
+                ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
 
-    def check_hotkey(self):
-        msg = wintypes.MSG()
-        # PeekMessage with PM_REMOVE (1) to process the message
-        while ctypes.windll.user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-            if msg.message == WM_HOTKEY and msg.wParam == self.hotkey_id:
-                logging.info("Hotkey Alt+Shift+T detected.")
-                self.show_nudge(forced=True)
-            ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
-            ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
-        self.root.after(100, self.check_hotkey)
+        thread = threading.Thread(target=hotkey_loop, daemon=True)
+        thread.start()
 
     def connect_toggl(self):
         """Only connects when the window is about to show."""
@@ -115,7 +122,7 @@ class TogglNudgeApp:
         # UI colors and layout
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        width, height = 300, 160
+        width, height = 300, 180
         self.nudge_window.geometry(f"{width}x{height}+{screen_width - width - 20}+{screen_height - height - 60}")
         self.nudge_window.configure(bg="#2c3e50")
         
@@ -130,6 +137,10 @@ class TogglNudgeApp:
         btn_frame.pack(pady=5)
         tk.Button(btn_frame, text="Focus", command=self.prompt_focus).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Skip", command=self.hide_nudge).pack(side=tk.LEFT, padx=5)
+        
+        # Hotkey reminder
+        tk.Label(self.nudge_window, text="Hotkey: Ctrl + Alt + Shift + T", fg="#95a5a6", bg="#2c3e50", font=("Arial", 8, "italic")).pack(side=tk.BOTTOM, pady=5)
+        
         self.nudge_window.bind("<Key>", self.handle_key)
 
     def handle_key(self, event):
@@ -201,6 +212,11 @@ class TogglNudgeApp:
             messagebox.showerror("Error", "Invalid duration. Use numbers like 0.5 or 2.")
 
     def show_nudge(self, forced=False):
+        # Toggle logic: if window is visible and hotkey is pressed, hide it
+        if forced and self.nudge_window.winfo_viewable():
+            self.hide_nudge()
+            return
+
         if forced or datetime.now() > self.focus_until:
             if self.connect_toggl():
                 self.nudge_window.deiconify()
