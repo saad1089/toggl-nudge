@@ -2,6 +2,8 @@ import os
 import sys
 import logging
 import tkinter as tk
+import ctypes
+from ctypes import wintypes
 from tkinter import messagebox, simpledialog
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
@@ -9,16 +11,26 @@ from dotenv import load_dotenv
 # --- OPTIMIZATION: Set Low Process Priority for Windows ---
 if sys.platform == 'win32':
     import psutil
-    p = psutil.Process(os.getpid())
-    p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+    try:
+        p = psutil.Process(os.getpid())
+        p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception:
+        pass
+
+# Windows Hotkey Constants
+MOD_CONTROL = 0x0002
+MOD_SHIFT = 0x0004
+VK_T = 0x54 # 'T' key
+WM_HOTKEY = 0x0312
 
 # Setup logging (minimal)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 log_file = os.path.join(project_root, "data", "toggl_nudge.log")
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
     filename=log_file,
-    level=logging.INFO, # Changed from DEBUG to INFO to save disk I/O
+    level=logging.INFO,
     format="%(asctime)s - %(message)s"
 )
 
@@ -48,9 +60,26 @@ class TogglNudgeApp:
         self.root.withdraw()
         self.setup_ui()
         
+        # Register Global Hotkey (Ctrl+Shift+T)
+        self.register_hotkey()
+        self.root.after(100, self.check_hotkey)
+        
         # Lazy Loading: Only connect to Toggl when we actually need it
         self.root.after(100, self.show_nudge)
         self.root.mainloop()
+
+    def register_hotkey(self):
+        if not ctypes.windll.user32.RegisterHotKey(None, 1, MOD_CONTROL | MOD_SHIFT, VK_T):
+            logging.error("Could not register hotkey Ctrl+Shift+T")
+
+    def check_hotkey(self):
+        msg = wintypes.MSG()
+        if ctypes.windll.user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+            if msg.message == WM_HOTKEY:
+                self.show_nudge(forced=True)
+            ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
+            ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
+        self.root.after(100, self.check_hotkey)
 
     def connect_toggl(self):
         """Only connects when the window is about to show."""
@@ -65,7 +94,8 @@ class TogglNudgeApp:
                 projects = self.ws_client.get_projects(workspace_id=self.workspace_id)
                 self.project_map = {p.name.lower(): p.id for p in projects}
                 return True
-        except Exception:
+        except Exception as e:
+            logging.error(f"Toggl connection failed: {e}")
             return False
         return False
 
@@ -75,7 +105,7 @@ class TogglNudgeApp:
         self.nudge_window.attributes("-topmost", True)
         self.nudge_window.overrideredirect(True)
         
-        # UI colors and layout (Static, so no CPU cost after creation)
+        # UI colors and layout
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         width, height = 300, 160
@@ -103,17 +133,27 @@ class TogglNudgeApp:
             self.start_timer(pid, name)
             self.hide_nudge()
 
+    def get_project_id(self, name):
+        name_lower = name.lower()
+        # Check shortcuts
+        for key, (sname, pid) in SHORTCUTS.items():
+            if name_lower == key or name_lower == sname:
+                return pid, sname
+        # Check direct map
+        pid = self.project_map.get(name_lower)
+        if pid: return pid, name
+        # Fuzzy match
+        matches = [pname for pname in self.project_map.keys() if name_lower in pname]
+        if matches: return self.project_map[matches[0]], matches[0]
+        return None, None
+
     def submit_custom(self):
-        name = self.entry.get().strip().lower()
+        name = self.entry.get().strip()
         if not name: self.hide_nudge(); return
         
-        pid = self.project_map.get(name)
-        if not pid:
-            matches = [pname for pname in self.project_map.keys() if name in pname]
-            if matches: pid = self.project_map[matches[0]]; name = matches[0]
-            
+        pid, matched_name = self.get_project_id(name)
         if pid:
-            self.start_timer(pid, name)
+            self.start_timer(pid, matched_name)
             self.hide_nudge()
         else:
             messagebox.showwarning("Unknown", f"Project '{name}' not found.")
@@ -128,26 +168,43 @@ class TogglNudgeApp:
                 duration=-1,
                 created_with="TogglNudge"
             )
-        except Exception: pass
+        except Exception as e:
+            logging.error(f"Failed to start timer: {e}")
 
     def prompt_focus(self):
-        duration = simpledialog.askstring("Focus", "Hours?")
-        if duration:
-            try:
-                self.focus_until = datetime.now() + timedelta(hours=float(duration))
-                self.hide_nudge()
-            except ValueError: pass
+        self.connect_toggl() # Ensure projects are loaded
+        name = self.entry.get().strip()
+        if not name:
+            name = simpledialog.askstring("Focus", "What project/task are you focusing on?")
+        if not name: return
 
-    def show_nudge(self):
-        if datetime.now() > self.focus_until:
+        duration = simpledialog.askstring("Focus", "How many hours?")
+        if not duration: return
+
+        try:
+            hours = float(duration)
+            pid, matched_name = self.get_project_id(name)
+            if pid:
+                self.start_timer(pid, matched_name)
+                self.focus_until = datetime.now() + timedelta(hours=hours)
+                self.hide_nudge()
+            else:
+                messagebox.showwarning("Unknown", f"Project '{name}' not found.")
+        except ValueError:
+            messagebox.showerror("Error", "Invalid duration. Use numbers like 0.5 or 2.")
+
+    def show_nudge(self, forced=False):
+        if forced or datetime.now() > self.focus_until:
             if self.connect_toggl():
                 self.nudge_window.deiconify()
                 self.nudge_window.lift()
+                self.nudge_window.attributes("-topmost", True)
                 self.entry.delete(0, tk.END)
                 self.entry.focus_set()
         
-        # Re-check every 30 mins
-        self.root.after(1800000, self.show_nudge)
+        if not forced:
+            # Re-check every 30 mins (1800000ms)
+            self.root.after(1800000, self.show_nudge)
 
     def hide_nudge(self):
         self.nudge_window.withdraw()
@@ -155,5 +212,7 @@ class TogglNudgeApp:
 if __name__ == "__main__":
     try:
         TogglNudgeApp()
-    except Exception:
+    except Exception as e:
+        logging.error(f"App crash: {e}")
         sys.exit(1)
+
